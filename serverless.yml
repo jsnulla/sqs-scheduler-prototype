@@ -1,0 +1,86 @@
+service: scheduler-proto
+frameworkVersion: '2'
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  lambdaHashingVersion: 20201221
+  stage: dev
+  region: ap-southeast-1
+  memorySize: 128
+  timeout: 3
+
+  environment:
+    STAGE: ${opt:stage, self:provider.stage}
+    SCHEDULER_QUEUE_NAME: ${self:resources.Outputs.SchedulerQueueName.Value}
+    TASK_QUEUE_NAME: ${self:resources.Outputs.SchedulerTaskQueueName.Value}
+
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - sqs:DeleteMessage
+            - sqs:GetQueueUrl
+            - sqs:ChangeMessageVisibility
+            - sqs:DeleteMessageBatch
+            - sqs:SendMessageBatch
+            - sqs:ReceiveMessage
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+            - sqs:ChangeMessageVisibilityBatch
+          Resource:
+            - { "Fn::GetAtt": ["schedulerQueue", "Arn"] }
+            - { "Fn::GetAtt": ["schedulerTaskQueue", "Arn"] }
+
+functions:
+  enqueueTask:
+    handler: ./src/handler.enqueueTask
+    events:
+    - httpApi:
+        method: POST
+        path: /enqueueTask
+
+  checkTaskSchedule:
+    handler: ./src/handler.checkTaskSchedule
+    events:
+    - sqs:
+        arn:
+          Fn::GetAtt:
+            - schedulerQueue
+            - Arn
+
+  runTask:
+    handler: ./src/handler.runTask
+    events:
+    - sqs:
+        arn:
+          Fn::GetAtt:
+            - schedulerTaskQueue
+            - Arn
+
+resources:
+  Description: Prototype for the task scheduler service
+  Resources:
+    schedulerQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        MessageRetentionPeriod: 86400 # 1 day
+        VisibilityTimeout: 5
+
+    schedulerTaskQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        MessageRetentionPeriod: 86400 # 1 day
+        VisibilityTimeout: 5
+
+  Outputs:
+    SchedulerQueueName:
+      Description: "SchedulerQueue name"
+      Value:
+        'Fn::GetAtt': [schedulerQueue, QueueName]
+
+    SchedulerTaskQueueName:
+      Description: "schedulerTaskQueueName name"
+      Value:
+        'Fn::GetAtt': [schedulerTaskQueue, QueueName]
